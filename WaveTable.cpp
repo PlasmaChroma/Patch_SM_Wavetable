@@ -1,6 +1,9 @@
 #include "daisy_patch_sm.h"
 #include "daisysp.h"
 #include "WaveTableOsc.h"
+#include "WavHeader.h"
+#include "SampleVoice.h"
+#include <fatfs.h>
 
 using namespace daisy;
 using namespace patch_sm;
@@ -10,6 +13,10 @@ DaisyPatchSM hw;
 
 WaveTableOsc* wtOsc;
 
+SdmmcHandler   sd;
+FatFSInterface fsi;
+FIL            SDFile;
+
 #define sampleRate (48000)
 #define numSecs (20.0)      /* length of sound file to generate (seconds) */
 #define gainMult (0.5)      /* some control over sound file gain */
@@ -17,6 +24,9 @@ WaveTableOsc* wtOsc;
 #define baseFrequency (20)  /* starting frequency of first table */
 #define constantRatioLimit (99999)    /* set to a large number (greater than or equal to the length of the lowest octave table) for constant table size; set to 0 for a constant oversampling ratio (each higher ocatave table length reduced by half); set somewhere between (64, for instance) for constant oversampling but with a minimum limit */
 #define myFloat double
+
+// buffer is twice as big as expected WT size, incase of stereo?
+int16_t DSY_SDRAM_BSS wt_sdram_buffer[1024 * 512];
 
 void fft(int N, myFloat *ar, myFloat *ai)
 /* in-place complex fft */
@@ -159,9 +169,17 @@ void setSawtoothOsc(WaveTableOsc *osc, float baseFreq) {
 
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
+	static int cycle = 0;
+
 	hw.ProcessAllControls();
 	float macroTune = hw.GetAdcValue(CV_1);
 	float freq = fmap(macroTune, 20.f, 15000.f, Mapping::LOG);
+	if (cycle++ % 10000 == 0) 
+    {
+        FixedCapStr<16> str("Freq: ");
+        str.AppendFloat(freq);
+        hw.PrintLine(str);
+    }
 	float microTune = hw.GetAdcValue(CV_2);
 	float freq_offset = fmap(microTune, -500.f, 500.f, Mapping::LINEAR);
 	
@@ -182,13 +200,41 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 }
 
 int main(void)
-{
+{    
 	wtOsc = new WaveTableOsc();
 	setSawtoothOsc(wtOsc, baseFrequency);
 
 	hw.Init();
+    hw.StartLog(true);
+    hw.PrintLine("Starting WaveTable Daisy Patch SM");
+
+    // ----- Get the wavetable data from the SD card -----
+    // Init SD Card
+    SdmmcHandler::Config sd_cfg;
+    sd_cfg.Defaults();
+    //sd_cfg.speed = daisy::SdmmcHandler::Speed::SLOW;
+    sd.Init(sd_cfg);
+    // Links libdaisy i/o to fatfs driver.
+    fsi.Init(FatFSInterface::Config::MEDIA_SD);
+    // Mount SD Card
+    f_mount(&fsi.GetSDFileSystem(), "/", 1);
+
+    SampleVoice sv;
+    sv.Init(wt_sdram_buffer, sizeof(wt_sdram_buffer) / sizeof(wt_sdram_buffer[0]));
+    char filename[256];
+    strcpy(filename, fsi.GetSDPath());
+    strcat(filename, "wavetable.wav");
+    sv.SetSample(filename);
+    // ----- (end)  -----
+
+    for (int i = 0; i < 16; i++)
+    {
+        hw.PrintLine("wavetable[%d]:%d", i, wt_sdram_buffer[i]);
+    }
+
 	hw.SetAudioBlockSize(4); // number of samples handled per callback
 	hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+    hw.PrintLine("Starting Audio Callback");
 	hw.StartAudio(AudioCallback);
 	while(1) {}
 }
