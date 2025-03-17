@@ -10,9 +10,11 @@ using namespace patch_sm;
 using namespace daisysp;
 
 DaisyPatchSM hw;
+CpuLoadMeter loadMeter;
 
 WaveTableOsc* wtOsc;
 
+// for loading WT from sd card
 SdmmcHandler   sd;
 FatFSInterface fsi;
 FIL            SDFile;
@@ -167,19 +169,23 @@ void setSawtoothOsc(WaveTableOsc *osc, float baseFreq) {
     }
 }
 
+float outputValue = 0;
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, size_t size)
 {
+    loadMeter.OnBlockStart();
 	static int cycle = 0;
 
 	hw.ProcessAllControls();
 	float macroTune = hw.GetAdcValue(CV_1);
 	float freq = fmap(macroTune, 20.f, 15000.f, Mapping::LOG);
-	if (cycle++ % 10000 == 0) 
+#if 0    
+	if (cycle % 10000 == 0) 
     {
-        FixedCapStr<16> str("Freq: ");
+        FixedCapStr<16> str("F: ");
         str.AppendFloat(freq);
         hw.PrintLine(str);
     }
+#endif
 	float microTune = hw.GetAdcValue(CV_2);
 	float freq_offset = fmap(microTune, -500.f, 500.f, Mapping::LINEAR);
 	
@@ -188,27 +194,41 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
 	if (freq_with_offset < 20) freq_with_offset = 20;
 	if (freq_with_offset > 15000) freq_with_offset = 15000;
 
+    FixedCapStr<32> str("R: ");
 	for (size_t i = 0; i < size; i++)
 	{		
 		double freqVal = freq_with_offset / sampleRate;
 
 		wtOsc->setFrequency(freqVal);
-		OUT_L[i] = wtOsc->getOutput();
-		OUT_R[i] = wtOsc->getOutput();
+        outputValue = wtOsc->getOutput();
+#if 0    
+        if (cycle % 10000 == 0) 
+        {            
+            str.AppendFloat(outputValue, 16, true, false);
+            hw.PrintLine(str);
+            hw.PrintLine(str);
+        }
+#endif        
+		OUT_L[i] = outputValue;
+		OUT_R[i] = outputValue;
 		wtOsc->updatePhase();
 	}
+    
+    cycle++;
+    loadMeter.OnBlockEnd();
 }
 
 int main(void)
 {    
-	wtOsc = new WaveTableOsc();
-	setSawtoothOsc(wtOsc, baseFrequency);
-
 	hw.Init();
     hw.StartLog(true);
+    hw.SetAudioBlockSize(4); // number of samples handled per callback
+	hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+    loadMeter.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
     hw.PrintLine("Starting WaveTable Daisy Patch SM");
 
-    // ----- Get the wavetable data from the SD card -----
+	wtOsc = new WaveTableOsc();
+	setSawtoothOsc(wtOsc, baseFrequency);    // ----- Get the wavetable data from the SD card -----
     // Init SD Card
     SdmmcHandler::Config sd_cfg;
     sd_cfg.Defaults();
@@ -222,8 +242,8 @@ int main(void)
     SampleVoice sv;
     sv.Init(wt_sdram_buffer, sizeof(wt_sdram_buffer) / sizeof(wt_sdram_buffer[0]));
     char filename[256];
-    strcpy(filename, fsi.GetSDPath());
-    strcat(filename, "wavetable.wav");
+    //strcpy(filename, fsi.GetSDPath());
+    strcpy(filename, "wavetable.wav");
     sv.SetSample(filename);
     // ----- (end)  -----
 
@@ -232,9 +252,26 @@ int main(void)
         hw.PrintLine("wavetable[%d]:%d", i, wt_sdram_buffer[i]);
     }
 
-	hw.SetAudioBlockSize(4); // number of samples handled per callback
-	hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+
     hw.PrintLine("Starting Audio Callback");
 	hw.StartAudio(AudioCallback);
-	while(1) {}
+	while(1) {
+        // get the current load (smoothed value and peak values)
+        const float avgLoad = loadMeter.GetAvgCpuLoad();
+        const float maxLoad = loadMeter.GetMaxCpuLoad();
+        const float minLoad = loadMeter.GetMinCpuLoad();
+        // print it to the serial connection (as percentages)
+        hw.Print("Processing Load %:");
+        hw.Print("  Max: " FLT_FMT3, FLT_VAR3(maxLoad * 100.0f));
+        hw.Print("  Avg: " FLT_FMT3, FLT_VAR3(avgLoad * 100.0f));
+        hw.PrintLine("  Min: " FLT_FMT3, FLT_VAR3(minLoad * 100.0f));
+
+        // get and print the output value
+        FixedCapStr<16> str("O: ");
+        str.AppendFloat(outputValue);
+        hw.PrintLine(str);
+        
+        // don't spam the serial connection too much
+        System::Delay(500);
+    }
 }
