@@ -26,6 +26,7 @@ class SampleVoice {
             position = 0;
         }
 
+        size_t GetLength(void) { return length; }
         void SetLength(size_t length) {this->length = length;}
         void *GetBuffer() {return (void *)buffer;}
         uint32_t GetBufferLength() {return bufferLength;}

@@ -2,7 +2,7 @@
 TARGET = WaveTable
 
 # Sources
-CPP_SOURCES = WaveTable.cpp WaveTableOsc.cpp SampleVoice.cpp
+CPP_SOURCES = WaveTable.cpp WaveTableOsc.cpp SampleVoice.cpp wtosc2.cpp
 
 # Library Locations
 LIBDAISY_DIR = ../../libDaisy/
