@@ -112,20 +112,20 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     // performance monitoring start
     loadMeter.OnBlockStart();
 
-	hw.ProcessAllControls();
+    hw.ProcessAllControls();
     button.Debounce();
     toggle.Debounce();
-	//float macroTune = hw.GetAdcValue(CV_1);
-	//float freq = fmap(macroTune, 20.f, 15000.f, Mapping::LOG);
+    //float macroTune = hw.GetAdcValue(CV_1);
+    //float freq = fmap(macroTune, 20.f, 15000.f, Mapping::LOG);
 
-	float microTune = hw.GetAdcValue(CV_2);
-	freq_offset = fmap(microTune, -0.08f, 0.08f, Mapping::LINEAR);
-    	
-	// constrain potential frequencies regardless
+    float microTune = hw.GetAdcValue(CV_2);
+    freq_offset = fmap(microTune, -0.08f, 0.08f, Mapping::LINEAR);
+        
+    // constrain potential frequencies regardless
     #if 0
-	freq_with_offset = freq + freq_offset;
-	if (freq_with_offset < 20) freq_with_offset = 20;
-	if (freq_with_offset > 15000) freq_with_offset = 15000;
+    freq_with_offset = freq + freq_offset;
+    if (freq_with_offset < 20) freq_with_offset = 20;
+    if (freq_with_offset > 15000) freq_with_offset = 15000;
     #endif
 
     float tableTune= hw.GetAdcValue(CV_3);
@@ -144,25 +144,25 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     float wtIndex = hw.GetAdcValue(CV_6);
     wtIndex = fmap(wtIndex, 0, wt_row_count, Mapping::LINEAR);
 
-	for (size_t i = 0; i < size; i++)
-	{		
-		wtOsc2->setCurrentRow(wtIndex);
-		wtOsc2->setFrequency(freqVal);
+    for (size_t i = 0; i < size; i++)
+    {		
+        wtOsc2->setCurrentRow(wtIndex);
+        wtOsc2->setFrequency(freqVal);
         outputValue = wtOsc2->getOutput();      
-		OUT_L[i] = outputValue;
-		OUT_R[i] = outputValue;
-		wtOsc2->updatePhase();
-	}
+        OUT_L[i] = outputValue;
+        OUT_R[i] = outputValue;
+        wtOsc2->updatePhase();
+    }
     
     loadMeter.OnBlockEnd();
 }
 
 int main(void)
 {    
-	hw.Init();
+    hw.Init();
     hw.StartLog(true);
     hw.SetAudioBlockSize(4); // number of samples handled per callback
-	hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+    hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
     
     /** Initialize Button/Toggle for rest of test. */
     button.Init(DaisyPatchSM::B7, hw.AudioCallbackRate());
@@ -173,7 +173,7 @@ int main(void)
     hw.PrintLine("Starting WaveTable Daisy Patch SM");
 
     wtOsc2 = new WTOSC2();
-	// ----- Get the wavetable data from the SD card -----
+    // ----- Get the wavetable data from the SD card -----
     // Init SD Card
     SdmmcHandler::Config sd_cfg;
     sd_cfg.Defaults();
@@ -207,8 +207,8 @@ int main(void)
     #endif
 
     hw.PrintLine("Starting Audio Callback");
-	hw.StartAudio(AudioCallback);
-	while(1) {
+    hw.StartAudio(AudioCallback);
+    while(1) {
         // get the current load (smoothed value and peak values)
         const float avgLoad = loadMeter.GetAvgCpuLoad();
         const float maxLoad = loadMeter.GetMaxCpuLoad();
