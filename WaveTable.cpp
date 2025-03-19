@@ -11,6 +11,7 @@ using namespace daisysp;
 
 DaisyPatchSM hw;
 CpuLoadMeter loadMeter;
+Switch       button, toggle;
 
 WTOSC2* wtOsc2;
 
@@ -41,6 +42,46 @@ float freq_offset = 0;
 const double C1_FREQ = 32.70319566;
 const double C6_FREQ = 1046.50226112;
 
+double quantizeToChromatic(double frequency) {
+    // A4 is 440Hz and is our reference
+    const double A4_FREQ = 440.0;
+    // Note names in the chromatic scale
+    const std::vector<std::string> NOTES = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    
+    // Calculate how many half steps away from A4 this frequency is
+    // The formula is: 12 * log2(f/440)
+    double halfStepsFromA4 = 12 * std::log2(frequency / A4_FREQ);
+    
+    // Round to the nearest half step to quantize
+    int roundedHalfSteps = std::round(halfStepsFromA4);
+    
+    // Calculate the quantized frequency using the equal temperament formula
+    double quantizedFreq = A4_FREQ * std::pow(2, roundedHalfSteps / 12.0);
+    
+    // Calculate cents deviation (how far off from the quantized note)
+    double centsDeviation = 100 * (halfStepsFromA4 - roundedHalfSteps);
+    
+    // Determine the note name and octave
+    // A4 is note 'A' at octave 4, which is the 9th note in our 0-indexed NOTES array
+    int noteIndex = (9 + roundedHalfSteps) % 12;
+    if (noteIndex < 0) {
+        noteIndex += 12;  // C++ modulo can return negative values, so we adjust
+    }
+    std::string noteName = NOTES[noteIndex];
+    
+    // Calculate the octave
+    int octave = 4 + (9 + roundedHalfSteps) / 12;
+    
+    // If we're below C0, adjust the octave calculation
+    if ((9 + roundedHalfSteps) < 0) {
+        octave = 4 + ((9 + roundedHalfSteps) - 11) / 12;
+    }
+    
+    std::string noteWithOctave = noteName + std::to_string(octave);
+    
+    return quantizedFreq;
+}
+
 double voltageToFrequency(double voltage) {
     // Clamp input voltage between 0V and 5V
     if (voltage < 0) voltage = 0;
@@ -52,7 +93,16 @@ double voltageToFrequency(double voltage) {
     // For 5V range, we cover exactly 5 octaves from C0 to C5
     // Calculate the frequency using the exponential relationship
     if (voltage <= 0.04) return C1_FREQ; // thresholding to prevent offset doing weird thingsB
-    double frequency = baseFreq * pow(2, voltage + freq_offset);
+
+    double frequency;
+    if (toggle.Pressed()) // remove offset if we're just straight up quantizing
+    {
+        frequency = baseFreq * pow(2, voltage);
+    }
+    else
+    {
+        frequency = baseFreq * pow(2, voltage + freq_offset);
+    }
     
     return frequency;
 }
@@ -63,6 +113,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     loadMeter.OnBlockStart();
 
 	hw.ProcessAllControls();
+    button.Debounce();
+    toggle.Debounce();
 	//float macroTune = hw.GetAdcValue(CV_1);
 	//float freq = fmap(macroTune, 20.f, 15000.f, Mapping::LOG);
 
@@ -82,6 +134,11 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out, s
     pitchInput= hw.GetAdcValue(CV_5);
     pitchVoltage = fmap(pitchInput, 0, 5, Mapping::LINEAR);
     pitchFrequency = voltageToFrequency(pitchVoltage);
+    if (toggle.Pressed())
+    {
+        // quantize to chromatic scale if switch is UP
+        pitchFrequency = quantizeToChromatic(pitchFrequency);
+    }
     double freqVal = (pitchFrequency) / sampleRate;
 
     float wtIndex = hw.GetAdcValue(CV_6);
@@ -106,7 +163,13 @@ int main(void)
     hw.StartLog(true);
     hw.SetAudioBlockSize(4); // number of samples handled per callback
 	hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+    
+    /** Initialize Button/Toggle for rest of test. */
+    button.Init(DaisyPatchSM::B7, hw.AudioCallbackRate());
+    toggle.Init(DaisyPatchSM::B8, hw.AudioCallbackRate());
+
     loadMeter.Init(hw.AudioSampleRate(), hw.AudioBlockSize());
+
     hw.PrintLine("Starting WaveTable Daisy Patch SM");
 
     wtOsc2 = new WTOSC2();
